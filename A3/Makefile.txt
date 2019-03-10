@@ -1,0 +1,41 @@
+# put the name of your application here:
+NAME1= bibauthor
+NAME2= bibcontent
+
+###############################################
+# don't touch anything below this line
+###############################################
+DB2PATH = /home/db2inst2/sqllib
+# The following compile and link options are for the gcc
+CC=gcc
+
+CFLAGS=-I$(DB2PATH)/include 
+#LIBS=-L$(DB2PATH)/lib -R$(DB2PATH)/lib -ldb2
+LIBS=-L$(DB2PATH)/lib -ldb2
+
+
+all: $(NAME1) $(NAME2)
+
+$(NAME1): $(NAME1).sqc util.o
+	db2 connect to cs348
+	db2 prep $(NAME1).sqc bindfile
+	db2 bind $(NAME1).bnd
+	db2 connect reset
+	$(CC) $(CFLAGS) -c $(NAME1).c 
+	$(CC) $(CFLAGS) -o $(NAME1) $(NAME1).o util.o $(LIBS)
+
+$(NAME2): $(NAME2).sqc util.o
+	db2 connect to cs348
+	db2 prep $(NAME2).sqc bindfile
+	db2 bind $(NAME2).bnd
+	db2 connect reset
+	$(CC) $(CFLAGS) -c $(NAME2).c 
+	$(CC) $(CFLAGS) -o $(NAME2) $(NAME2).o util.o $(LIBS)
+
+clean:
+	rm -f $(NAME1) $(NAME1).c $(NAME1).o $(NAME1).bnd
+
+util.o : util.c
+	$(CC) -c util.c $(CFLAGS)
+
+

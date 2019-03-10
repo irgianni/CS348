@@ -1,0 +1,258 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "util.h"
+
+EXEC SQL INCLUDE SQLCA;
+
+EXEC SQL BEGIN DECLARE SECTION;
+   char db[6] = "cs348";
+   char nameInput[23];
+   char authorName[23];
+   char publicationPubid[11];
+   char publicationTitle[71];
+   char bookPublisher[51];
+   int publicationsYear;
+   int journalVolume;
+   int journalNumber;
+   char articleAppearsin[11];
+   int articleStart;
+   int articleEnd;
+   char pubType[12];
+EXEC SQL END DECLARE SECTION;
+
+void printAuthors() {
+   EXEC SQL DECLARE authorC CURSOR FOR
+      SELECT trim(author.name) as name
+      FROM author, wrote
+      WHERE author.aid = wrote.aid
+        AND wrote.pubid = :publicationPubid
+      ORDER BY wrote.aorder ASC;
+
+   EXEC SQL OPEN authorC;
+   printf("Authors: ");
+   EXEC SQL FETCH authorC INTO :authorName;
+   while (SQLCODE != 100) {
+      printf("%s", authorName);
+      EXEC SQL FETCH authorC INTO :authorName;
+      if (SQLCODE == 100)
+         break;
+      else printf(",");
+   }
+   printf("\n");
+   EXEC SQL CLOSE authorC;
+}
+
+char publicationType() {
+   EXEC SQL SELECT title
+      INTO :publicationTitle
+      FROM publication
+      WHERE pubid = :publicationPubid;
+
+   EXEC SQL SELECT appearsin, startpage, endpage
+      INTO :articleAppearsin, :articleStart, :articleEnd
+      FROM article
+      WHERE pubid = :publicationPubid;
+   if (SQLCODE == 0)
+      return 'a';
+
+   EXEC SQL SELECT publisher, year
+      INTO :bookPublisher, :publicationsYear
+      FROM book
+      WHERE pubid = :publicationPubid;
+   if (SQLCODE == 0)
+      return 'b';   
+
+   EXEC SQL SELECT volume, number, year
+      INTO :journalVolume, :journalNumber, :publicationsYear
+      FROM journal
+      WHERE pubid = :publicationPubid;
+   if (SQLCODE == 0)
+      return 'j';
+
+   EXEC SQL SELECT year
+      INTO :publicationsYear
+      FROM proceedings
+      WHERE pubid = :publicationPubid;
+   if (SQLCODE == 0)
+      return 'p';
+}
+
+void printPublications(char type) {
+   printf("Pubid: %s\n", publicationPubid);
+   switch(type) {
+      case 'a': strcpy(pubType, "article"); break;
+      case 'b': strcpy(pubType, "book"); break;
+      case 'j': strcpy(pubType, "journal"); break;
+      case 'p': strcpy(pubType, "proceedings"); break;
+   }
+   printf("Type: %s\n", pubType);
+   printf("Title: %s\n", publicationTitle);
+
+   switch(type) {
+      case 'a':
+         printAuthors();
+         printf("In: %s\n", articleAppearsin);
+         printf("Pages: %d--%d\n", articleStart, articleEnd);
+         break;      
+      case 'b':
+         printAuthors();
+         printf("Publisher: %s\n", bookPublisher);
+         printf("Year: %d\n", publicationsYear);
+         break;
+      case 'j':
+         printf("Volume: %d\n", journalVolume);
+         printf("Number: %d\n", journalNumber);
+         printf("Year: %d\n", publicationsYear);
+         break;
+      case 'p':
+         printf("Year: %d\n", publicationsYear);
+         break;
+
+   }
+   printf("\n");
+}
+
+/*void printRecords() {
+      EXEC SQL DECLARE recordC CURSOR FOR
+      WITH pubYearName AS ((
+         SELECT wrote1.pubid AS pubid,
+            CASE
+               WHEN b.year IS NOT NULL THEN b.year
+               WHEN j.year IS NOT NULL THEN j.year
+               WHEN p.year IS NOT NULL THEN p.year
+            END AS year,
+            firstAuthor.name AS name
+
+         FROM wrote AS wrote1, wrote AS wrote2, author AS inputAuthor, author AS firstAuthor
+            LEFT JOIN book AS b ON wrote1.pubid = b.pubid
+            LEFT JOIN journal AS j ON wrote1.pubid = j.pubid
+            LEFT JOIN proceedings AS p ON wrote1.pubid = p.pubid
+
+         WHERE inputAuthor.name = :nameInput
+            AND wrote1.aid = inputAuthor.aid
+            AND wrote1.pubid = wrote2.pubid
+            AND wrote2.aorder = 1
+            AND wrote2.aid = firstAuthor.aid
+         ) UNION (
+
+         SELECT a.pubid AS pubid,
+         CASE
+            WHEN b.year IS NOT NULL THEN b.year
+            WHEN j.year IS NOT NULL THEN j.year
+            WHEN p.year IS NOT NULL THEN p.year
+         END AS year,
+         (SELECT firstAuthor.name 
+         FROM wrote AS wrote2, author AS firstAuthor
+         WHERE wrote2.pubid = a.appearsin
+            AND wrote2.aorder = 1
+            AND wrote2.aid = firstAuthor.aid
+         LIMIT 1) AS name
+
+         FROM wrote AS wrote1, wrote AS wrote2, author AS inputAuthor, article AS a
+            LEFT JOIN book AS b ON a.appearsin = b.pubid
+            LEFT JOIN journal AS j ON a.appearsin = j.pubid
+            LEFT JOIN proceedings AS p ON a.appearsin = p.pubid
+
+         WHERE inputAuthor.name = :nameInput
+            AND wrote1.aid = inputAuthor.aid
+            AND wrote1.pubid = wrote2.pubid
+        ))
+      SELECT pubid, year, name
+      FROM pubYearName
+      ORDER BY year DESC, name ASC;
+
+   EXEC SQL OPEN recordC;
+   while (SQLCODE != 100) {
+      EXEC SQL FETCH recordC INTO :publicationPubid;
+      if (SQLCODE == 100)
+         break;
+      char type = publicationType();
+      printPublications(type);
+   }
+   EXEC SQL CLOSE recordC;
+}*/
+
+int main(int argc, char *argv[]) {
+   if (argc != 2) {
+      printf("Usage: Input Author Name\n");
+      exit(1);
+   }
+   strcpy(nameInput, argv[1]);
+
+   EXEC SQL WHENEVER SQLERROR  GO TO error;
+
+   EXEC SQL CONNECT TO :db;
+
+   EXEC SQL DECLARE recordC CURSOR FOR
+   WITH pubYearName AS ((
+      SELECT wrote1.pubid AS pubid,
+         CASE
+            WHEN b.year IS NOT NULL THEN b.year
+            WHEN j.year IS NOT NULL THEN j.year
+            WHEN p.year IS NOT NULL THEN p.year
+         END AS year,
+         firstAuthor.name AS name
+
+      FROM wrote AS wrote1, wrote AS wrote2, author AS inputAuthor, author AS firstAuthor
+         LEFT JOIN book AS b ON wrote1.pubid = b.pubid
+         LEFT JOIN journal AS j ON wrote1.pubid = j.pubid
+         LEFT JOIN proceedings AS p ON wrote1.pubid = p.pubid
+
+      WHERE inputAuthor.name = :nameInput
+         AND wrote1.aid = inputAuthor.aid
+         AND wrote1.pubid = wrote2.pubid
+         AND wrote2.aorder = 1
+         AND wrote2.aid = firstAuthor.aid
+      ) UNION (
+
+      SELECT a.pubid AS pubid,
+      CASE
+         WHEN b.year IS NOT NULL THEN b.year
+         WHEN j.year IS NOT NULL THEN j.year
+         WHEN p.year IS NOT NULL THEN p.year
+      END AS year,
+      (SELECT firstAuthor.name 
+      FROM wrote AS wrote2, author AS firstAuthor
+      WHERE wrote2.pubid = a.appearsin
+         AND wrote2.aorder = 1
+         AND wrote2.aid = firstAuthor.aid
+      LIMIT 1) AS name
+
+      FROM wrote AS wrote1, wrote AS wrote2, author AS inputAuthor, article AS a
+         LEFT JOIN book AS b ON a.appearsin = b.pubid
+         LEFT JOIN journal AS j ON a.appearsin = j.pubid
+         LEFT JOIN proceedings AS p ON a.appearsin = p.pubid
+
+      WHERE inputAuthor.name = :nameInput
+         AND wrote1.aid = inputAuthor.aid
+         AND wrote1.pubid = wrote2.pubid
+     ))
+   SELECT pubid, year, name
+   FROM pubYearName
+   ORDER BY year DESC, name ASC;
+
+   EXEC SQL OPEN recordC;
+   while (SQLCODE != 100) {
+      EXEC SQL FETCH recordC INTO :publicationPubid;
+      if (SQLCODE == 100)
+         break;
+      char type = publicationType();
+      printPublications(type);
+   }
+   EXEC SQL CLOSE recordC;
+
+   printRecords();
+
+   EXEC SQL COMMIT;
+   EXEC SQL CONNECT reset;
+   exit(0);
+
+error:
+   check_error("Error",&sqlca);
+   EXEC SQL WHENEVER SQLERROR CONTINUE;
+
+   EXEC SQL ROLLBACK;
+   EXEC SQL CONNECT reset;
+   exit(1);
+}
